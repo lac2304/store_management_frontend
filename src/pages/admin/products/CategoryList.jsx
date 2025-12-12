@@ -1,147 +1,161 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Table, Button, Space, Tag, Modal, message, Input, Breadcrumb, 
-  Form, Select, Row, Col, Card 
+  Form, Select, Row, Col 
 } from 'antd';
 import { 
-  PlusOutlined, 
-  EditOutlined, 
-  DeleteOutlined, 
-  SearchOutlined,
-  AppstoreOutlined
+  PlusOutlined, EditOutlined, DeleteOutlined, 
+  SearchOutlined, AppstoreOutlined 
 } from '@ant-design/icons';
+import categoryApi from '../../../api/products/categoryApi'; // Import API
 
 const { Option } = Select;
 
 const CategoryList = () => {
   const [form] = Form.useForm();
   
-  // --- STATE QUẢN LÝ ---
+  // State quản lý
+  const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
 
-  // --- DỮ LIỆU MOCK (Khớp với SQL mẫu của bạn) ---
-  const [data, setData] = useState([
-    {
-      id: 'c1a1bde7-6a4a-4d21-a71d-f2c1a1111111',
-      key: '1',
-      categoryName: 'Tiểu thuyết',
-      categoryCode: 'NOVEL',
-      status: 'ACTIVE',
-      bookCount: 150 // Giả lập số lượng sách trong danh mục
-    },
-    {
-      id: 'c2a1bde7-6a4a-4d21-a71d-f2c1a2222222',
-      key: '2',
-      categoryName: 'Khoa học',
-      categoryCode: 'SCI',
-      status: 'ACTIVE',
-      bookCount: 45
-    },
-    {
-      id: 'c3a1bde7-6a4a-4d21-a71d-f2c1a3333333',
-      key: '3',
-      categoryName: 'Kinh tế',
-      categoryCode: 'ECO',
-      status: 'ACTIVE',
-      bookCount: 80
-    },
-    {
-      id: 'c4a1bde7-6a4a-4d21-a71d-f2c1a4444444',
-      key: '4',
-      categoryName: 'Truyện Tranh (Manga)',
-      categoryCode: 'MANGA',
-      status: 'INACTIVE',
-      bookCount: 0
-    }
-  ]);
+  // =================================================================
+  // 1. HÀM GỌI API (Logic tìm mảng thông minh)
+  // =================================================================
+  const fetchCategories = async () => {
+    setLoading(true);
+    try {
+      const response = await categoryApi.getAll();
+      console.log("🔍 API Category:", response); 
 
-  // --- HÀM MỞ MODAL THÊM MỚI ---
+      let validData = [];
+      // Kiểm tra mọi trường hợp API trả về
+      if (Array.isArray(response)) validData = response;
+      else if (response?.data && Array.isArray(response.data)) validData = response.data;
+      else if (response?.result && Array.isArray(response.result)) validData = response.result;
+      else if (response?.data?.items && Array.isArray(response.data.items)) validData = response.data.items;
+
+      setData(validData);
+
+    } catch (error) {
+      console.error("Lỗi fetch:", error);
+      message.error('Không thể tải danh sách thể loại!');
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  // =================================================================
+  // 2. HÀM SUBMIT (Mapping PascalCase cho .NET)
+  // =================================================================
+  const onFinish = async (values) => {
+    setLoading(true);
+    try {
+      // Ép kiểu dữ liệu sang PascalCase (Khớp với SQL/Entity)
+      const payload = {
+        CategoryName: values.categoryName,
+        CategoryCode: values.categoryCode,
+        Status: values.status,
+        IsDeleted: false
+      };
+
+      if (editingCategory) {
+        // --- UPDATE ---
+        payload.Id = editingCategory.id; // Gắn ID vào
+        console.log("📤 Update payload:", payload);
+        await categoryApi.update(editingCategory.id, payload);
+        message.success('Cập nhật thành công!');
+      } else {
+        // --- CREATE ---
+        // Không gửi ID để Backend tự sinh GUID
+        console.log("📤 Create payload:", payload);
+        await categoryApi.create(payload);
+        message.success('Thêm mới thành công!');
+      }
+      
+      setIsModalOpen(false);
+      fetchCategories(); // Tải lại bảng
+
+    } catch (error) {
+      console.error("❌ Lỗi API:", error);
+      const msg = error.response?.data?.message || 'Lỗi Server (500)';
+      message.error(`Thất bại: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // =================================================================
+  // 3. HÀM XÓA
+  // =================================================================
+  const handleDelete = (id) => {
+    Modal.confirm({
+      title: 'Xóa danh mục?',
+      content: 'Lưu ý: Nếu danh mục này đang có sách, bạn không nên xóa nó.',
+      okType: 'danger',
+      okText: 'Xóa ngay',
+      onOk: async () => {
+        try {
+          await categoryApi.delete(id);
+          message.success('Đã xóa thành công');
+          fetchCategories();
+        } catch (error) {
+          message.error('Xóa thất bại (Có thể do dữ liệu ràng buộc).');
+        }
+      }
+    });
+  };
+
+  // --- CÁC HÀM PHỤ TRỢ ---
   const handleAddNew = () => {
     setEditingCategory(null);
     form.resetFields();
     setIsModalOpen(true);
   };
 
-  // --- HÀM MỞ MODAL SỬA ---
   const handleEdit = (record) => {
     setEditingCategory(record);
-    form.setFieldsValue(record);
+    // Map dữ liệu từ bảng (PascalCase) vào Form (camelCase)
+    form.setFieldsValue({
+      categoryName: record.categoryName || record.CategoryName,
+      categoryCode: record.categoryCode || record.CategoryCode,
+      status: record.status || record.Status || 'ACTIVE'
+    });
     setIsModalOpen(true);
   };
 
-  // --- HÀM XỬ LÝ XÓA ---
-  const handleDelete = (id) => {
-    Modal.confirm({
-      title: 'Xóa danh mục?',
-      content: 'Lưu ý: Nếu danh mục này đang có sách, bạn không nên xóa nó.',
-      okType: 'danger',
-      onOk() {
-        // Gọi API xóa thật ở đây
-        message.success('Đã xóa thành công');
-        setData(data.filter(item => item.id !== id));
-      },
-    });
-  };
-
-  // --- SUBMIT FORM ---
-  const onFinish = (values) => {
-    setLoading(true);
-    // Giả lập API delay
-    setTimeout(() => {
-      if (editingCategory) {
-        // Update logic
-        const newData = data.map(item => 
-          item.id === editingCategory.id ? { ...item, ...values } : item
-        );
-        setData(newData);
-        message.success('Cập nhật danh mục thành công!');
-      } else {
-        // Create logic
-        const newCategory = {
-          ...values,
-          id: `new_${Date.now()}`,
-          key: `${Date.now()}`,
-          bookCount: 0
-        };
-        setData([newCategory, ...data]);
-        message.success('Thêm danh mục mới thành công!');
-      }
-      setLoading(false);
-      setIsModalOpen(false);
-    }, 500);
-  };
-
-  // --- CẤU HÌNH CỘT BẢNG ---
+  // --- CẤU HÌNH CỘT ---
   const columns = [
     {
       title: 'Mã Thể Loại',
       dataIndex: 'categoryCode',
       key: 'categoryCode',
-      render: (text) => <Tag color="geekblue">{text}</Tag>
+      render: (text, r) => <Tag color="geekblue">{text || r.CategoryCode}</Tag>
     },
     {
       title: 'Tên Thể Loại',
       dataIndex: 'categoryName',
       key: 'categoryName',
-      render: (text) => <b>{text}</b>,
-    },
-    {
-      title: 'Số đầu sách',
-      dataIndex: 'bookCount',
-      key: 'bookCount',
-      render: (count) => `${count} cuốn`
+      render: (text, r) => <b>{text || r.CategoryName}</b>,
     },
     {
       title: 'Trạng thái',
       dataIndex: 'status',
       key: 'status',
-      render: (status) => (
-        <Tag color={status === 'ACTIVE' ? 'green' : 'default'}>
-          {status === 'ACTIVE' ? 'Hoạt động' : 'Tạm ẩn'}
-        </Tag>
-      )
+      render: (status, r) => {
+        const s = status || r.Status;
+        return (
+          <Tag color={s === 'ACTIVE' ? 'green' : 'default'}>
+            {s === 'ACTIVE' ? 'Hoạt động' : 'Ẩn'}
+          </Tag>
+        )
+      }
     },
     {
       title: 'Hành động',
@@ -149,7 +163,7 @@ const CategoryList = () => {
       render: (_, record) => (
         <Space>
           <Button icon={<EditOutlined />} onClick={() => handleEdit(record)} />
-          <Button danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id)} />
+          <Button danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id || record.Id)} />
         </Space>
       ),
     },
@@ -157,50 +171,35 @@ const CategoryList = () => {
 
   return (
     <div>
-      {/* Breadcrumb */}
-      <Breadcrumb style={{ marginBottom: 16 }}>
-        <Breadcrumb.Item>Admin</Breadcrumb.Item>
-        <Breadcrumb.Item>Sản phẩm</Breadcrumb.Item>
-        <Breadcrumb.Item>Danh mục Thể loại</Breadcrumb.Item>
-      </Breadcrumb>
+      <Breadcrumb style={{ marginBottom: 16 }} items={[{ title: 'Admin' }, { title: 'Sản phẩm' }, { title: 'Danh mục' }]} />
 
-      {/* Toolbar */}
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-        <Input 
-          prefix={<SearchOutlined />} 
-          placeholder="Tìm kiếm danh mục..." 
-          style={{ width: 300 }} 
-        />
+        <Input prefix={<SearchOutlined />} placeholder="Tìm kiếm danh mục..." style={{ width: 300 }} />
         <Button type="primary" icon={<PlusOutlined />} onClick={handleAddNew}>
-          Thêm danh mục
+          Thêm Danh mục
         </Button>
       </div>
 
-      {/* Table */}
       <Table 
         columns={columns} 
         dataSource={data} 
+        rowKey={(record) => record.id || record.Id} 
+        loading={loading}
         pagination={{ pageSize: 8 }} 
-        rowKey="id"
       />
 
-      {/* Modal Form */}
       <Modal
         title={editingCategory ? "Cập nhật Danh mục" : "Thêm Danh mục mới"}
         open={isModalOpen}
         onCancel={() => setIsModalOpen(false)}
         footer={null}
-        destroyOnClose
+        destroyOnHidden={true} // Reset form khi đóng
+        confirmLoading={loading}
       >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={onFinish}
-          initialValues={{ status: 'ACTIVE' }}
-        >
-          <Form.Item
-            name="categoryName"
-            label="Tên Thể Loại"
+        <Form form={form} layout="vertical" onFinish={onFinish} initialValues={{ status: 'ACTIVE' }}>
+          <Form.Item 
+            name="categoryName" 
+            label="Tên Thể Loại" 
             rules={[{ required: true, message: 'Vui lòng nhập tên thể loại!' }]}
           >
             <Input placeholder="Ví dụ: Tiểu thuyết, Kinh tế..." prefix={<AppstoreOutlined />} />
@@ -214,8 +213,9 @@ const CategoryList = () => {
                 rules={[{ required: true, message: 'Vui lòng nhập mã!' }]}
               >
                 <Input 
-                  placeholder="VD: NOVEL, SCI..." 
+                  placeholder="VD: NOVEL" 
                   style={{ textTransform: 'uppercase' }} 
+                  // Tự động viết hoa khi nhập
                   onChange={(e) => form.setFieldsValue({ categoryCode: e.target.value.toUpperCase() })}
                 />
               </Form.Item>
@@ -231,12 +231,10 @@ const CategoryList = () => {
           </Row>
 
           <div style={{ textAlign: 'right', marginTop: 16 }}>
-            <Space>
-              <Button onClick={() => setIsModalOpen(false)}>Hủy</Button>
-              <Button type="primary" htmlType="submit" loading={loading}>
-                {editingCategory ? "Lưu thay đổi" : "Tạo mới"}
-              </Button>
-            </Space>
+            <Button onClick={() => setIsModalOpen(false)} style={{ marginRight: 8 }}>Hủy</Button>
+            <Button type="primary" htmlType="submit" loading={loading}>
+              {editingCategory ? "Lưu thay đổi" : "Tạo mới"}
+            </Button>
           </div>
         </Form>
       </Modal>
