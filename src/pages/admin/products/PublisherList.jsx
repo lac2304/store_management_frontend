@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Table, Button, Space, Tag, Modal, message, Input, Breadcrumb, 
   Form, Select, Row, Col 
@@ -7,35 +7,130 @@ import {
   PlusOutlined, EditOutlined, DeleteOutlined, 
   SearchOutlined, HomeOutlined 
 } from '@ant-design/icons';
+import publisherApi from '../../../api/products/publisherApi'; // Import API vừa tạo
 
 const { Option } = Select;
 const { TextArea } = Input;
 
 const PublisherList = () => {
   const [form] = Form.useForm();
+  
+  // State quản lý
+  const [data, setData] = useState([]); 
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPublisher, setEditingPublisher] = useState(null);
 
-  // --- MOCK DATA ---
-  const [data, setData] = useState([
-    {
-      id: 'p1111111-aaaa-bbbb-cccc-111122223333',
-      name: 'NXB Kim Đồng',
-      code: 'NXB_KD',
-      address: '55 Quang Trung, Hà Nội',
-      status: 'ACTIVE',
-    },
-    {
-      id: 'p2222222-aaaa-bbbb-cccc-111122223333',
-      name: 'NXB Trẻ',
-      code: 'NXB_TRE',
-      address: '161B Lý Chính Thắng, TP.HCM',
-      status: 'ACTIVE',
-    }
-  ]);
+  // =================================================================
+  // 1. HÀM GỌI API (Tự động xử lý cấu trúc dữ liệu)
+  // =================================================================
+  const fetchPublishers = async () => {
+    setLoading(true);
+    try {
+      const response = await publisherApi.getAll();
+      console.log("🔍 API Publisher:", response); 
 
-  // --- HÀM XỬ LÝ ---
+      let validData = [];
+
+      // TRƯỜNG HỢP 1: API trả về mảng trực tiếp [item1, item2]
+      if (Array.isArray(response)) {
+        validData = response;
+      } 
+      // TRƯỜNG HỢP 2: API trả về { data: [item1, item2] }
+      else if (response?.data && Array.isArray(response.data)) {
+        validData = response.data;
+      }
+      // TRƯỜNG HỢP 3: API trả về { data: { items: [...] } } <--- KHẢ NĂNG CAO LÀ CÁI NÀY
+      else if (response?.data?.items && Array.isArray(response.data.items)) {
+        validData = response.data.items;
+      }
+      // TRƯỜNG HỢP 4: API trả về { data: { result: [...] } }
+      else if (response?.data?.result && Array.isArray(response.data.result)) {
+        validData = response.data.result;
+      }
+      // TRƯỜNG HỢP 5: API trả về { result: [...] }
+      else if (response?.result && Array.isArray(response.result)) {
+        validData = response.result;
+      }
+
+      setData(validData);
+
+    } catch (error) {
+      console.error("Lỗi fetch:", error);
+      message.error('Không thể tải danh sách NXB!');
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPublishers();
+  }, []);
+
+  // =================================================================
+  // 2. HÀM SUBMIT (Mapping PascalCase cho .NET)
+  // =================================================================
+  const onFinish = async (values) => {
+    setLoading(true);
+    try {
+      // Ép kiểu dữ liệu sang PascalCase (Viết Hoa Chữ Đầu)
+      const payload = {
+        Name: values.name,
+        Code: values.code,
+        Address: values.address,
+        Status: values.status,
+        IsDeleted: false
+      };
+
+      if (editingPublisher) {
+        // --- UPDATE ---
+        payload.Id = editingPublisher.id; // Gắn ID vào
+        console.log("📤 Update payload:", payload);
+        await publisherApi.update(editingPublisher.id, payload);
+        message.success('Cập nhật thành công!');
+      } else {
+        // --- CREATE ---
+        // Không gửi ID để Backend tự sinh GUID
+        console.log("📤 Create payload:", payload);
+        await publisherApi.create(payload);
+        message.success('Thêm mới thành công!');
+      }
+      
+      setIsModalOpen(false);
+      fetchPublishers(); // Tải lại bảng
+
+    } catch (error) {
+      console.error("❌ Lỗi API:", error);
+      const msg = error.response?.data?.message || 'Lỗi Server (500)';
+      message.error(`Thất bại: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // =================================================================
+  // 3. HÀM XÓA
+  // =================================================================
+  const handleDelete = (id) => {
+    Modal.confirm({
+      title: 'Xóa Nhà xuất bản?',
+      content: 'Lưu ý: Không nên xóa nếu NXB này đang có sách.',
+      okType: 'danger',
+      okText: 'Xóa ngay',
+      onOk: async () => {
+        try {
+          await publisherApi.delete(id);
+          message.success('Đã xóa thành công');
+          fetchPublishers();
+        } catch (error) {
+          message.error('Xóa thất bại (Có thể do dữ liệu ràng buộc).');
+        }
+      }
+    });
+  };
+
+  // --- CÁC HÀM PHỤ TRỢ ---
   const handleAddNew = () => {
     setEditingPublisher(null);
     form.resetFields();
@@ -44,37 +139,14 @@ const PublisherList = () => {
 
   const handleEdit = (record) => {
     setEditingPublisher(record);
-    form.setFieldsValue(record);
-    setIsModalOpen(true);
-  };
-
-  const handleDelete = (id) => {
-    Modal.confirm({
-      title: 'Xóa Nhà xuất bản?',
-      content: 'Lưu ý: Không nên xóa nếu NXB này đang có sách trong hệ thống.',
-      okType: 'danger',
-      onOk() {
-        message.success('Đã xóa thành công');
-        setData(data.filter(item => item.id !== id));
-      },
+    // Map dữ liệu từ bảng (có thể là PascalCase) vào Form (camelCase)
+    form.setFieldsValue({
+      name: record.name || record.Name,
+      code: record.code || record.Code,
+      address: record.address || record.Address,
+      status: record.status || record.Status || 'ACTIVE'
     });
-  };
-
-  const onFinish = (values) => {
-    setLoading(true);
-    setTimeout(() => {
-      if (editingPublisher) {
-        const newData = data.map(item => item.id === editingPublisher.id ? { ...item, ...values } : item);
-        setData(newData);
-        message.success('Cập nhật NXB thành công!');
-      } else {
-        const newItem = { ...values, id: Date.now().toString(), status: 'ACTIVE' };
-        setData([newItem, ...data]);
-        message.success('Thêm NXB mới thành công!');
-      }
-      setLoading(false);
-      setIsModalOpen(false);
-    }, 500);
+    setIsModalOpen(true);
   };
 
   // --- CẤU HÌNH CỘT ---
@@ -83,28 +155,32 @@ const PublisherList = () => {
       title: 'Mã NXB',
       dataIndex: 'code',
       key: 'code',
-      render: (text) => <Tag color="purple">{text}</Tag>
+      render: (text, r) => <Tag color="purple">{text || r.Code}</Tag>
     },
     {
       title: 'Tên Nhà xuất bản',
       dataIndex: 'name',
       key: 'name',
-      render: (text) => <b style={{ color: '#1677ff' }}>{text}</b>,
+      render: (text, r) => <b style={{ color: '#1677ff' }}>{text || r.Name}</b>,
     },
     {
       title: 'Địa chỉ',
       dataIndex: 'address',
       key: 'address',
+      render: (text, r) => text || r.Address
     },
     {
       title: 'Trạng thái',
       dataIndex: 'status',
       key: 'status',
-      render: (status) => (
-        <Tag color={status === 'ACTIVE' ? 'green' : 'default'}>
-          {status === 'ACTIVE' ? 'Hoạt động' : 'Ẩn'}
-        </Tag>
-      )
+      render: (status, r) => {
+        const s = status || r.Status;
+        return (
+          <Tag color={s === 'ACTIVE' ? 'green' : 'default'}>
+            {s === 'ACTIVE' ? 'Hoạt động' : 'Ẩn'}
+          </Tag>
+        )
+      }
     },
     {
       title: 'Hành động',
@@ -112,7 +188,7 @@ const PublisherList = () => {
       render: (_, record) => (
         <Space>
           <Button icon={<EditOutlined />} onClick={() => handleEdit(record)} />
-          <Button danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id)} />
+          <Button danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id || record.Id)} />
         </Space>
       ),
     },
@@ -120,11 +196,7 @@ const PublisherList = () => {
 
   return (
     <div>
-      <Breadcrumb style={{ marginBottom: 16 }}>
-        <Breadcrumb.Item>Admin</Breadcrumb.Item>
-        <Breadcrumb.Item>Sản phẩm</Breadcrumb.Item>
-        <Breadcrumb.Item>Nhà xuất bản</Breadcrumb.Item>
-      </Breadcrumb>
+      <Breadcrumb style={{ marginBottom: 16 }} items={[{ title: 'Admin' }, { title: 'Sản phẩm' }, { title: 'Nhà xuất bản' }]} />
 
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
         <Input prefix={<SearchOutlined />} placeholder="Tìm kiếm NXB..." style={{ width: 300 }} />
@@ -133,28 +205,35 @@ const PublisherList = () => {
         </Button>
       </div>
 
-      <Table columns={columns} dataSource={data} rowKey="id" pagination={{ pageSize: 6 }} />
+      <Table 
+        columns={columns} 
+        dataSource={data} 
+        rowKey={(record) => record.id || record.Id} 
+        loading={loading}
+        pagination={{ pageSize: 6 }} 
+      />
 
       <Modal
         title={editingPublisher ? "Cập nhật NXB" : "Thêm NXB mới"}
         open={isModalOpen}
         onCancel={() => setIsModalOpen(false)}
         footer={null}
-        destroyOnClose
+        destroyOnHidden={true}
+        confirmLoading={loading}
       >
-        <Form form={form} layout="vertical" onFinish={onFinish}>
-          <Form.Item name="name" label="Tên Nhà xuất bản" rules={[{ required: true }]}>
-            <Input prefix={<HomeOutlined />} placeholder="Nhập tên NXB..." />
+        <Form form={form} layout="vertical" onFinish={onFinish} initialValues={{ status: 'ACTIVE' }}>
+          <Form.Item name="name" label="Tên Nhà xuất bản" rules={[{ required: true, message: 'Nhập tên NXB' }]}>
+            <Input prefix={<HomeOutlined />} placeholder="Ví dụ: NXB Kim Đồng" />
           </Form.Item>
           
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="code" label="Mã Code" rules={[{ required: true }]}>
+              <Form.Item name="code" label="Mã Code" rules={[{ required: true, message: 'Nhập mã' }]}>
                 <Input placeholder="VD: NXB_KD" style={{ textTransform: 'uppercase' }} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="status" label="Trạng thái" initialValue="ACTIVE">
+              <Form.Item name="status" label="Trạng thái">
                 <Select>
                   <Option value="ACTIVE">Hoạt động</Option>
                   <Option value="INACTIVE">Tạm ẩn</Option>
@@ -168,12 +247,10 @@ const PublisherList = () => {
           </Form.Item>
 
           <div style={{ textAlign: 'right', marginTop: 10 }}>
-            <Space>
-              <Button onClick={() => setIsModalOpen(false)}>Hủy</Button>
-              <Button type="primary" htmlType="submit" loading={loading}>
-                {editingPublisher ? "Lưu lại" : "Tạo mới"}
-              </Button>
-            </Space>
+            <Button onClick={() => setIsModalOpen(false)} style={{ marginRight: 8 }}>Hủy</Button>
+            <Button type="primary" htmlType="submit" loading={loading}>
+              {editingPublisher ? "Lưu lại" : "Tạo mới"}
+            </Button>
           </div>
         </Form>
       </Modal>
